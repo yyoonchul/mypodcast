@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>나무위키 스크래퍼</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .input-section {
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            width: 80%;
+            padding: 8px;
+            margin-right: 10px;
+        }
+        button {
+            padding: 8px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .result {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .title {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .content {
+            white-space: pre-wrap;
+        }
+        .error {
+            color: red;
+            margin-top: 10px;
+        }
+        .menu-bar {
+            background-color: #333;
+            padding: 10px 0;
+            margin-bottom: 20px;
+        }
+        
+        .menu-bar button {
+            background: none;
+            border: none;
+            color: white;
+            padding: 8px 15px;
+            margin: 0 10px;
+            cursor: pointer;
+        }
+        
+        .menu-bar button.active {
+            background-color: #4CAF50;
+            border-radius: 4px;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+
+        textarea {
+            resize: vertical;
+            font-family: Arial, sans-serif;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        #script-title-input {
+            width: 80%;
+            display: block;
+        }
+    </style>
+    <script>
+        function showTab(tabName) {
+            // 모든 탭 컨텐츠 숨기기
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // 모든 메뉴 버튼 비활성화
+            document.querySelectorAll('.menu-bar button').forEach(button => {
+                button.classList.remove('active');
+            });
+            
+            // 선택된 탭 보이기
+            document.getElementById(tabName).classList.add('active');
+            document.querySelector(`button[onclick="showTab('${tabName}')"]`).classList.add('active');
+        }
+
+        async function scrapeContent() {
+            const url = document.getElementById('url-input').value;
+            const resultDiv = document.getElementById('scrape-result');
+            
+            try {
+                const response = await fetch('/api/scrape', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url: url })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'error') {
+                    resultDiv.innerHTML = `<div class="error">${data.error}</div>`;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="title">제목: ${data.title}</div>
+                        <div class="content">${data.content}</div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">오류가 발생했습니다: ${error}</div>`;
+            }
+        }
+
+        async function generateScript() {
+            const title = document.getElementById('script-title-input').value;
+            const content = document.getElementById('script-content-input').value;
+            const resultDiv = document.getElementById('script-result');
+            
+            try {
+                const response = await fetch('/api/script', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        title: title,
+                        content: content 
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'error') {
+                    resultDiv.innerHTML = `<div class="error">${data.error}</div>`;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="title">원본 제목: ${title}</div>
+                        <div class="content">${data.script}</div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">오류가 발생했습니다: ${error}</div>`;
+            }
+        }
+    </script>
+</head>
+<body>
+    <h1>나무위키 스크래퍼</h1>
+    
+    <div class="menu-bar">
+        <button onclick="showTab('scrape-tab')" class="active">스크래핑 테스트</button>
+        <button onclick="showTab('script-tab')">스크립트 생성</button>
+    </div>
+    
+    <div id="scrape-tab" class="tab-content active">
+        <div class="input-section">
+            <input type="text" id="url-input" placeholder="나무위키 URL을 입력하세요">
+            <button onclick="scrapeContent()">스크랩</button>
+        </div>
+        <div id="scrape-result" class="result"></div>
+    </div>
+    
+    <div id="script-tab" class="tab-content">
+        <div class="input-section">
+            <input type="text" id="script-title-input" placeholder="제목을 입력하세요" style="margin-bottom: 10px;">
+            <textarea id="script-content-input" placeholder="전처리 된 텍스트를 입력하세요" style="width: 80%; height: 200px; padding: 8px; margin-right: 10px;"></textarea>
+            <button onclick="generateScript()">스크립트 생성</button>
+        </div>
+        <div id="script-result" class="result"></div>
+    </div>
+</body>
+</html> 

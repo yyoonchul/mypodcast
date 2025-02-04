@@ -1,4 +1,5 @@
 import openai
+import json
 from app.exceptions.podcast_exceptions import ContentProcessingException
 
 class ScriptMaker:
@@ -9,33 +10,134 @@ class ScriptMaker:
     def generate_script(title: str, content: str) -> str:
         try:
             client = openai.OpenAI()
-            prompt = (
-                "아래의 제목과 텍스트를 기반으로, 원문의 모든 세부 내용과 재미 요소들을 놓치지 않으면서도, "
-                "팟캐스트 스크립트 형식에 맞게 자연스럽게 재구성해줘.\n\n"
-                "주어진 텍스트를 분석하여 문서의 주요 내용, 진행 방식 및 목차를 상세하게 구성해. "
-                "이때 원문의 세부 내용과 흐름이 모두 반영되도록 목차 항목을 정리해줘.\n\n"
-                "조건:\n"
-                "- 스크립트는 한국어로 작성할 것\n"
-                "- TTS 모델에 입력할 것이므로, 실제 청취자가 듣는 느낌으로 읽기 좋은 형태로 작성할 것\n"
-                "- 원문의 전체 내용을 포함하되, 단순 암송이 아니라 팟캐스트 진행에 맞게 적절히 재구성할 것\n"
-                "  (예: 목소리의 톤, 감정, 강조점 등을 고려하여 표현하며, 필요한 경우 문장 구조를 변경하거나 "
-                "  적절한 연결어를 추가해 자연스러운 흐름을 만들 것)\n\n"
-                f"제목: {title}\n"
-                f"내용: {content}\n\n"
-                "위 조건에 맞춰 팟캐스트 스크립트를 작성해줘."
+            print("[INFO] 스크립트 생성 시작...") #모니터링 용 로깅
+
+            # 1. 초기 대화: 원문 전체를 포함하여 테이블 오브 콘텐츠(목차) 생성에 필요한 정보를 제공
+            initial_messages = [
+                {
+                    "role": "system",
+                    "content": "너는 전문 팟캐스트 스크립트 작가이자 콘텐츠 연출 전문가야."
+                },
+                {
+                    "role": "user",
+                    "content": f"제목과 원문 전체 내용:\n\n제목: {title}\n\n내용: {content}\n\n이 내용을 기억해."
+                }
+            ]
+
+            # 2. 목차 생성 요청 (목차는 JSON 형식으로 출력하도록 요청)
+            prompt_toc = (
+                "위에서 제공한 원문 내용을 바탕으로, 팟캐스트 스크립트의 목차를 생성해줘.\n"
+                "출력은 반드시 아래의 JSON 스키마만을 따라야 해. 다른 설명은 포함하지 말고, 오직 JSON 데이터만 출력해줘.\n\n"
+                "JSON 스키마:\n"
+                "```\n"
+                "{\"chapters\": [\n"
+                "    {\"title\": \"챕터 제목\", \"description\": \"챕터 설명\"},\n"
+                "    ...\n"
+                "]}\n"
+                "```\n"
             )
 
-            response = client.chat.completions.create(
+            initial_messages.append({"role": "user", "content": prompt_toc})
+
+            functions = [
+                {
+                    "name": "extract_toc",
+                    "description": "원문 내용을 바탕으로 목차를 JSON 형식으로 생성합니다.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "chapters": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "title": {
+                                            "type": "string",
+                                            "description": "챕터 제목"
+                                        },
+                                        "description": {
+                                            "type": "string",
+                                            "description": "챕터에서 다룰 내용 요약"
+                                        }
+                                    },
+                                    "required": ["title", "description"]
+                                }
+                            }
+                        },
+                        "required": ["chapters"]
+                    }
+                }
+            ]
+
+            toc_response = client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "너는 전문 팟캐스트 스크립트 작가이자 콘텐츠 분석 전문가야."},
-                    {"role": "user", "content": prompt}
-                ],
+                messages=initial_messages,
+                functions=functions,
+                function_call={"name": "extract_toc"},
                 temperature=0.7,
             )
+
+            #3 목차 파싱, structured output은 function_call 필드에 arguments로 JSON 데이터를 담아 응답합니다.
+            function_args = toc_response.choices[0].message.function_call.arguments
+
+            if function_args is None:
+                raise ContentProcessingException("함수 호출 응답이 없습니다.")
+
+            toc_data = json.loads(function_args)
+            chapters = toc_data.get("chapters", [])
+
+            if not chapters:
+                raise ContentProcessingException("목차 생성에 실패하였습니다.")
             
-            script = response.choices[0].message.content.strip()
-            return script
+            print(f"[SUCCESS] 목차 생성 완료. 총 {len(chapters)}개 챕터")
+
+            full_script = f"팟캐스트 스크립트: {title}\n"
+
+            # 4. 이후부터는 원문 전체 내용을 다시 보내지 않고, 간단한 참조 메시지로 대체하여 토큰 사용을 줄임.
+            reference_message = {
+                "role": "assistant",
+                "content": "참고: 이전 메시지에서 제공한 원문 전체 내용을 기억하고 있으니, 이를 바탕으로 작성해줘."
+            }
+
+            # 5. 각 챕터별 스크립트 생성 (개별 요청 시 새 conversation을 구성)
+            for idx, chapter in enumerate(chapters, start=1):
+                chapter_messages = [
+                    {
+                        "role": "system",
+                        "content": "너는 전문 팟캐스트 스크립트 작가이자 콘텐츠 연출 전문가야."
+                    },
+                    # 원문 전체 내용 대신 간단한 참조 메시지를 사용
+                    reference_message,
+                    {
+                        "role": "user",
+                        "content": (
+                            f"이전 메시지에서 제공한 원문을 참고하여, 아래 목차에 해당하는 챕터의 팟캐스트 스크립트를 작성해줘.\n\n"
+                            f"챕터 {idx} 제목: {chapter['title']}\n"
+                            f"챕터 {idx} 설명: {chapter['description']}\n\n"
+                            "조건:\n"
+                            "- 스크립트는 한국어로 작성할 것\n"
+                            "- 원문의 모든 세부 정보와 소소한 재미 요소를 최대한 보존하되, 청취자가 함께 읽는 듯한 생생하고 자연스러운 흐름으로 재구성할 것\n"
+                            "- 해당 챕터에서 다루는 내용이 충분히 전달되도록 자세하게 작성할 것\n"
+                            "- [, ], {, } 등의 특수 기호로 감싸진 지시문이나 주석을 포함하지 말 것. 순수한 스크립트 콘텐츠만 작성할 것."
+                            
+                        )
+                    }
+                ]
+
+                chapter_response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=chapter_messages,
+                    temperature=0.7,
+                )
+
+                chapter_script = chapter_response.choices[0].message.content.strip()
+                full_script += f"\n\n=== 챕터 {idx}: {chapter['title']} ===\n{chapter_script}\n"
+                
+                print(f"[SUCCESS] 챕터 {idx} 스크립트 생성 완료!")
+            
+            print("[INFO] 전체 스크립트 생성 완료!")
+            return full_script
             
         except Exception as e:
             raise ContentProcessingException(f"Failed to generate script: {str(e)}")
+        

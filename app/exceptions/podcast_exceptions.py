@@ -18,4 +18,10 @@ class ContentProcessingException(PodcastException):
     """콘텐츠 처리 실패 예외"""
     def __init__(self, message="Failed to process content"):
         self.message = message
+        super().__init__(self.message)
+
+class AudioGenerationException(PodcastException):
+    """오디오 생성 실패 예외"""
+    def __init__(self, message="Failed to generate audio"):
+        self.message = message
         super().__init__(self.message) 

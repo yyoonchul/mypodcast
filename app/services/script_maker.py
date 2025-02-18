@@ -1,16 +1,18 @@
 import openai
 import json
+import logging
 from app.exceptions.podcast_exceptions import ContentProcessingException
 
 class ScriptMaker:
     def __init__(self, api_key: str):
         openai.api_key = api_key
+        self.logger = logging.getLogger(__name__)
 
-    @staticmethod
-    def generate_script(title: str, content: str) -> str:
+    def generate_script(self, title: str, content: str) -> str:
+
         try:
+            self.logger.info(f"Starting script generation for title: {title}")
             client = openai.OpenAI()
-            print("[INFO] 스크립트 생성 시작...") #모니터링 용 로깅
 
             # 1. 초기 대화: 원문 전체를 포함하여 테이블 오브 콘텐츠(목차) 생성에 필요한 정보를 제공
             initial_messages = [
@@ -87,11 +89,13 @@ class ScriptMaker:
             chapters = toc_data.get("chapters", [])
 
             if not chapters:
+                self.logger.error("Failed to generate table of contents")
                 raise ContentProcessingException("목차 생성에 실패하였습니다.")
             
-            print(f"[SUCCESS] 목차 생성 완료. 총 {len(chapters)}개 챕터")
+            self.logger.info(f"Successfully generated table of contents with {len(chapters)} chapters")
 
-            full_script = f"팟캐스트 스크립트: {title}\n"
+            full_script = []
+            self.logger.info("Starting chapter script generation...")
 
             # 4. 이후부터는 원문 전체 내용을 다시 보내지 않고, 간단한 참조 메시지로 대체하여 토큰 사용을 줄임.
             reference_message = {
@@ -118,7 +122,9 @@ class ScriptMaker:
                             "- 스크립트는 한국어로 작성할 것\n"
                             "- 원문의 모든 세부 정보와 소소한 재미 요소를 최대한 보존하되, 청취자가 함께 읽는 듯한 생생하고 자연스러운 흐름으로 재구성할 것\n"
                             "- 해당 챕터에서 다루는 내용이 충분히 전달되도록 자세하게 작성할 것\n"
-                            "- [, ], {, } 등의 특수 기호로 감싸진 지시문이나 주석을 포함하지 말 것. 순수한 스크립트 콘텐츠만 작성할 것."
+                            "- [, ], {, } 등의 특수 기호로 감싸진 지시문을을 포함하지 말 것. 순수한 스크립트 콘텐츠만 작성할 것\n"
+                            f"- {idx}번째 챕터임을 고려해서 전후 맥락에 맞는 문장으로 시작하고 맺을 것\n"
+                            "- 원문의 숫자, 연도, 고유명사, 사실 관계 등 객관적인 사실과 관계를 왜곡 없이 전할 것."
                             
                         )
                     }
@@ -131,13 +137,13 @@ class ScriptMaker:
                 )
 
                 chapter_script = chapter_response.choices[0].message.content.strip()
-                full_script += f"\n\n=== 챕터 {idx}: {chapter['title']} ===\n{chapter_script}\n"
-                
-                print(f"[SUCCESS] 챕터 {idx} 스크립트 생성 완료!")
-            
-            print("[INFO] 전체 스크립트 생성 완료!")
+                full_script.append(chapter_script)
+                self.logger.info(f"Completed Chapter {idx} script generation")
+
+            self.logger.info("Successfully completed full script generation")
             return full_script
             
         except Exception as e:
+            self.logger.error(f"Script generation failed: {str(e)}")
             raise ContentProcessingException(f"Failed to generate script: {str(e)}")
         

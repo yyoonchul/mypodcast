@@ -1,18 +1,30 @@
 from fastapi import APIRouter, HTTPException
-from app.models.podcast import PodcastRequest, PodcastResponse, ScriptRequest, ScriptResponse
+from fastapi.responses import  FileResponse
+from app.models.podcast import PodcastRequest, PodcastResponse, ScriptRequest
 from app.services.namuwiki_scrape import NamuWikiScraper
 from app.services.namuwiki_data_extract import TextCleaner
 from app.services.script_maker import ScriptMaker
+from app.services.audio_maker import AudioMaker
 from app.exceptions.podcast_exceptions import (
     PodcastException,
     InvalidURLException,
     ScrapingException,
-    ContentProcessingException
+    ContentProcessingException,
 )
+from app.services.podcast_maker import PodcastMaker
 import os
+import logging
+from dotenv import load_dotenv
+
+# 로그 핸들러 설정
+logger = logging.getLogger()
 
 router = APIRouter()
+
+load_dotenv()
 script_maker = ScriptMaker(os.getenv("OPENAI_API_KEY"))
+audio_maker = AudioMaker([os.getenv("ELEVEN_LABS_API_KEY"), os.getenv("OPENAI_API_KEY")], 2) # 1: elevenlabs, 2: openai
+podcast_maker = PodcastMaker(script_maker, audio_maker)
 
 @router.post("/podcast", response_model=PodcastResponse)
 async def create_podcast(request: PodcastRequest):
@@ -52,47 +64,18 @@ async def create_podcast(request: PodcastRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-#스크래핑 테스트
-@router.post("/scrape")
-async def scrape_content(request: PodcastRequest):
+@router.post("/create_podcast")
+async def create_full_podcast(request: ScriptRequest):
     try:
-        # URL 검증
-        if not NamuWikiScraper.validate_url(str(request.url)):
-            raise InvalidURLException()
+        podcast_path = podcast_maker.create_podcast(request.title, request.content)
         
-        # 콘텐츠 스크래핑
-        title, raw_content = NamuWikiScraper.scrape_content(str(request.url))
+        return FileResponse(
+            path=podcast_path,
+            media_type="audio/mpeg",
+            filename=os.path.basename(podcast_path)
+        )
         
-        return {
-            "title": title,
-            "content": raw_content,
-            "status": "success"
-        }
-        
-    except PodcastException as e:
-        return {
-            "status": "error",
-            "error": str(e.message)
-        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/script", response_model=ScriptResponse)
-async def create_script(request: ScriptRequest):
-    try:
-        # 스크립트 생성
-        script = script_maker.generate_script(request.title, request.content)
-        
-        return ScriptResponse(
-            script=script,
-            status="success"
-        )
-        
-    except ContentProcessingException as e:
-        return ScriptResponse(
-            script="",
-            status="error",
-            error=str(e.message)
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+

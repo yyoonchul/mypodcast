@@ -88,11 +88,22 @@ class PodcastMaker:
             AudioSegment.converter = ffmpeg_path
             AudioSegment.ffprobe = ffprobe_path
 
+            # 트랜지션 효과음 로드 (mouse_click 효과음)
+            transition_path = "assets/mouse_click.flac"
+            if not os.path.exists(transition_path):
+                raise AudioGenerationException("Transition sound effect file not found.")
+            transition_segment = AudioSegment.from_file(transition_path)
+
+        # 오디오 파일 병합 (각 파일 사이에 트랜지션 효과 삽입)
             combined = AudioSegment.empty()
+            total_files = len(audio_files)
             for idx, audio_file in enumerate(audio_files, 1):
-                self.logger.info(f"Merging file {idx}/{len(audio_files)}")
+                self.logger.info(f"Merging file {idx}/{total_files}")
                 segment = AudioSegment.from_mp3(audio_file)
                 combined += segment
+                # 마지막 파일이 아니라면 트랜지션 효과음 추가
+                if idx < total_files:
+                    combined += transition_segment
 
             self.logger.info(f"Exporting final podcast to: {output_path}")
             combined.export(output_path, format="mp3")

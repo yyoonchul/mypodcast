@@ -107,7 +107,7 @@ class ScriptMaker:
             ]
 
             toc_response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=initial_messages,
                 functions=functions,
                 function_call={"name": "extract_toc"},
@@ -151,7 +151,7 @@ class ScriptMaker:
                 ]
 
                 chapter_response = client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model="gpt-4o",
                     messages=chapter_messages,
                     temperature=0.7,
                 )

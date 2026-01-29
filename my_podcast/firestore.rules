@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /waitlist/{document} {
+      allow read: if false;
+      allow write: if true; // 웨이트리스트 등록만 허용
+    }
+  }
+}
